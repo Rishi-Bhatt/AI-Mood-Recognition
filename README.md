@@ -24,12 +24,37 @@ To set up and run this project locally, follow these steps:
 
 3.  **Install dependencies:**
 
+    First, create a `requirements.txt` file with the following content (if it doesn't already exist):
+
+    ```
+    Flask
+    opencv-python
+    numpy
+    speechrecognition
+    librosa
+    nltk
+    transformers
+    tensorflow
+    huggingface_hub
+    ```
+
+    Then, install the dependencies:
+
     ```bash
     pip install -r requirements.txt
     ```
-    (Note: We will create the `requirements.txt` file in a later step.)
 
-4.  **Run the application:**
+4.  **Download Hugging Face Models:**
+
+    Run the following script to download the necessary models from Hugging Face:
+
+    ```bash
+    python download_models.py
+    ```
+
+    This script will download `expressiondetector_modern.keras` and ensure the `distilbert-base-uncased-emotion` model is downloaded and cached by the `transformers` library.
+
+5.  **Run the application:**
 
     Depending on the main entry point, you would typically run:
 
@@ -41,37 +66,39 @@ To set up and run this project locally, follow these steps:
 
 ## Hugging Face Model Usage
 
-This project utilizes an emotion detection model (`expressiondetector_modern.keras`) that is publicly available on Hugging Face. You can directly use this model for inference in your own applications.
+This section provides alternative ways to directly use the models. The project's `app.py` already handles the loading of these models as described above.
 
-**Hugging Face Model Link:** [21f1000330/AI-Mood-Recognition](https://huggingface.co/21f1000330/AI-Mood-Recognition)
+**Hugging Face Model Links:**
+*   Expression Detector: [21f1000330/AI-Mood-Recognition](https://huggingface.co/21f1000330/AI-Mood-Recognition)
+*   DistilBERT Emotion Classifier: [21f1000330/distilbert-base-uncased-emotion](https://huggingface.co/21f1000330/distilbert-base-uncased-emotion)
 
-### How to use the Model
+### How to use the Models Directly
 
-To use the deployed model, you can leverage the `transformers` library:
+#### 1. DistilBERT Emotion Classifier (Text Emotion)
+
+You can leverage the `transformers` library for the text classification model:
 
 ```python
 from transformers import pipeline
 
-# Load the emotion classification pipeline using your model
-emotion_classifier = pipeline("image-classification", model="21f1000330/AI-Mood-Recognition")
+# Load the emotion classification pipeline for text
+emotion_classifier = pipeline("text-classification", model="21f1000330/distilbert-base-uncased-emotion", top_k=1)
 
-# Example usage (assuming you have an image file or numpy array)
-# from PIL import Image
-# image = Image.open("path/to/your/image.jpg")
-# result = emotion_classifier(image)
-# print(result)
-
-# Note: The model expects a 48x48 grayscale image for input. 
-# You may need to preprocess your images accordingly before passing them to the pipeline.
+# Example usage
+text_input = "I am feeling very happy today!"
+result = emotion_classifier(text_input)
+print(result)
 ```
 
-Alternatively, you can load the model directly using `tensorflow.keras` if you prefer:
+#### 2. Keras Expression Detector (Facial Expression)
+
+For the Keras facial expression detection model, you can load it directly using `tensorflow.keras` from its local path after downloading:
 
 ```python
 import tensorflow as tf
 
-# Load the Keras model directly from Hugging Face
-model = tf.keras.models.load_model("hf://21f1000330/AI-Mood-Recognition/expressiondetector_modern.keras", compile=False)
+# Load the Keras model directly from the local file
+model = tf.keras.models.load_model("expressiondetector_modern.keras", compile=False)
 
 # Example inference (assuming preprocessed_image is a 48x48 grayscale numpy array)
 # predictions = model.predict(preprocessed_image)

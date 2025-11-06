@@ -1,11 +1,11 @@
-nltk
-transformers
-flask
+Flask
 opencv-python
 numpy
 speechrecognition
 librosa
+nltk
+transformers
 tensorflow
-pandas
-dash
-plotly
+torch
+tf-keras
+huggingface_hub
