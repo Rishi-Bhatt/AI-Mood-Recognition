@@ -14,24 +14,12 @@ import librosa
 from tensorflow import keras
 import tensorflow as tf
 
-
-# Environment and TensorFlow Config
-
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0" 
-
-
-# Flask app setup
 
 app = Flask(__name__)
 
-
-# Initialize NLTK + Sentiment Analyzer
-
 nltk.download('vader_lexicon')
 sia = SentimentIntensityAnalyzer()
-
-
-# Hugging Face Emotion Classifier
 
 emotion_classifier = pipeline(
     "text-classification",
@@ -39,15 +27,9 @@ emotion_classifier = pipeline(
     top_k=1
 )
 
-
-# Load Modern Converted Model
-
 print("Loading modern Keras model...")
 model = keras.models.load_model("expressiondetector_modern.keras", compile=False)
 print("Model loaded successfully!")
-
-
-# Face detection setup
 
 haar_file = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(haar_file)
@@ -66,9 +48,6 @@ task_assignment = {
     'sad': "Assign lighter tasks or encourage social interaction.",
     'surprise': "Allow creative or unexpected tasks."
 }
-
-
-# Database utilities
 
 def save_mood_to_db(emotion):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -121,9 +100,6 @@ def send_stress_alert():
     except Exception as e:
         print(f"Email sending error: {e}")
 
-
-# Emotion Analysis
-
 def extract_features(image):
     feature = np.array(image).reshape(1, 48, 48, 1)
     return feature / 255.0
@@ -147,8 +123,6 @@ def analyze_speech_emotion(audio_path):
     y, sr = librosa.load(audio_path, sr=None)
     mfccs = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40).T, axis=0)
     return "happy" if np.mean(mfccs) > 0 else "neutral"
-
-# Flask Routes
 
 @app.route('/analyze_text', methods=['POST'])
 def analyze_text():

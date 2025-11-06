@@ -1,0 +1,11 @@
+nltk
+transformers
+flask
+opencv-python
+numpy
+speechrecognition
+librosa
+tensorflow
+pandas
+dash
+plotly
