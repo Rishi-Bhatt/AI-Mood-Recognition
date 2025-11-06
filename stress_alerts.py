@@ -27,10 +27,10 @@ def send_alert_to_hr(stress_percentage):
     manager_email = os.getenv("MANAGER_EMAIL")  
 
     if not sender_email:
-        print("⚠ Email credentials missing. Cannot send alert.")
+        print("Email credentials missing. Cannot send alert.")
         return
 
-    subject = "🚨 Employee Stress Alert!"
+    subject = "Employee Stress Alert!"
     body = f"Warning: The system detected {stress_percentage:.2f}% negative emotions over the past week."
 
     recipients = [hr_email, manager_email]  
@@ -45,5 +45,5 @@ def send_alert_to_hr(stress_percentage):
         server.login(sender_email, os.getenv("EMAIL_PASS"))
         server.sendmail(sender_email, recipients, msg.as_string())
 
-    print("📢 HR & Manager Alert Sent")
+    print("HR & Manager Alert Sent")
 

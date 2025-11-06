@@ -15,7 +15,7 @@ cursor.execute("""
 """)
 conn.commit()
 
-print("✅ SQLite Database connected and table created successfully!")
+print("SQLite Database connected and table created successfully!")
 
 def save_mood_to_db(emotion):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -23,7 +23,7 @@ def save_mood_to_db(emotion):
         cursor = conn.cursor()
         cursor.execute("INSERT INTO mood_log (timestamp, emotion) VALUES (?, ?)", (timestamp, emotion))
         conn.commit()
-    print(f"📝 Saved: {emotion} at {timestamp}")
+    print(f"Saved: {emotion} at {timestamp}")
     check_stress_alert()
 
 
@@ -46,10 +46,10 @@ def send_stress_alert():
     receiver_email = os.getenv("HR_EMAIL")  
     password = os.getenv("EMAIL_PASS")  
     if not sender_email or not password:
-        print("⚠ Email credentials not set. Alert not sent.")
+        print("Email credentials not set. Alert not sent.")
         return
 
-    subject = "⚠ Employee Stress Alert!"
+    subject = "Employee Stress Alert!"
     body = "An employee has shown signs of prolonged stress (sad, angry, or fear). Please check in and provide support."
 
     email_message = f"Subject: {subject}\n\n{body}"
@@ -58,11 +58,11 @@ def send_stress_alert():
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender_email, password)
             server.sendmail(sender_email, receiver_email, email_message)
-        print("📩 HR/Manager notified about stress alert!")
+        print("HR/Manager notified about stress alert!")
     except Exception as e:
-        print(f"⚠ Error sending email: {e}")
+        print(f"Error sending email: {e}")
 
 
 def close_connection():
     conn.close()
-    print("🔒 Database connection closed!")
+    print("Database connection closed!")
