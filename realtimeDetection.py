@@ -1,13 +1,18 @@
 import cv2
 import mediapipe as mp
 import numpy as np
-from keras.models import model_from_json
+from tensorflow import keras # Changed from keras.models to tensorflow.keras for modern .keras loading
 
-json_file = open("expressiondetector.json", "r")
-model_json = json_file.read()
-json_file.close()
-model = model_from_json(model_json)
-model.load_weights("expressiondetector.h5")
+# json_file = open("expressiondetector.json", "r")
+# model_json = json_file.read()
+# json_file.close()
+# model = model_from_json(model_json)
+# model.load_weights("expressiondetector.h5")
+
+#New Model
+print("Loading expressiondetector_modern.keras...")
+model = keras.models.load_model("expressiondetector_modern.keras", compile=False)
+print("Model loaded successfully!")
 
 mp_face_detection = mp.solutions.face_detection
 face_detection = mp_face_detection.FaceDetection(min_detection_confidence=0.6)
