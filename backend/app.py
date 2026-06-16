@@ -1,58 +1,76 @@
 import sqlite3
 import smtplib
 import os
-import nltk
-from nltk.sentiment import SentimentIntensityAnalyzer
-from transformers import pipeline
+import sys
 from datetime import datetime
 from email.mime.text import MIMEText
 from flask import Flask, render_template, Response, jsonify, request
 import cv2
 import numpy as np
-import speech_recognition as sr
 import librosa
-from tensorflow import keras
-import tensorflow as tf
+import tf_keras as keras
+from transformers import pipeline
+from dotenv import load_dotenv
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 TEMPLATES_DIR = os.path.join(BASE_DIR, "frontend", "templates")
+sys.path.insert(0, BASE_DIR)
+
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+from ml.fusion.fusion_layer import fuse
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
-nltk.download('vader_lexicon')
-sia = SentimentIntensityAnalyzer()
+EMOTION_MAP = {
+    "joy": "happy", "anger": "angry", "sadness": "sad",
+    "fear": "fear", "disgust": "disgust", "surprise": "surprise",
+    "neutral": "neutral"
+}
 
+task_assignment = {
+    'angry':   "Take deep breaths and relax.",
+    'disgust': "Engage in a team discussion for clarity.",
+    'fear':    "Reassess task workload and provide support.",
+    'happy':   "Encourage collaboration and brainstorming.",
+    'neutral': "Continue with assigned tasks normally.",
+    'sad':     "Assign lighter tasks or encourage social interaction.",
+    'surprise':"Allow creative or unexpected tasks."
+}
+
+labels = {0: 'angry', 1: 'disgust', 2: 'fear', 3: 'happy', 4: 'neutral', 5: 'sad', 6: 'surprise'}
+
+# ── Model loading ─────────────────────────────────────────────────────────────
+print("Loading text emotion classifier (j-hartmann/emotion-english-distilroberta-base)...")
 emotion_classifier = pipeline(
     "text-classification",
-    model="21f1000330/distilbert-base-uncased-emotion",
+    model="j-hartmann/emotion-english-distilroberta-base",
     top_k=1
 )
 
-print("Loading modern Keras model...")
-model = keras.models.load_model(os.path.join(MODELS_DIR, "expressiondetector_modern.keras"), compile=False)
-print("Model loaded successfully!")
+print("Loading Whisper ASR (openai/whisper-base)...")
+asr_pipeline = pipeline(
+    "automatic-speech-recognition",
+    model="openai/whisper-base"
+)
+
+print("Loading face CNN...")
+face_model = keras.models.load_model(
+    os.path.join(MODELS_DIR, "expressiondetector_modern.keras"), compile=False
+)
+print("All models loaded!")
 
 haar_file = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(haar_file)
 
-labels = {
-    0: 'angry', 1: 'disgust', 2: 'fear',
-    3: 'happy', 4: 'neutral', 5: 'sad', 6: 'surprise'
-}
+# ── Global state for fusion ───────────────────────────────────────────────────
+latest_emotions = {'face': None, 'text': None, 'audio': None}
+detected_faces = []
 
-task_assignment = {
-    'angry': "Take deep breaths and relax.",
-    'disgust': "Engage in a team discussion for clarity.",
-    'fear': "Reassess task workload and provide support.",
-    'happy': "Encourage collaboration and brainstorming.",
-    'neutral': "Continue with assigned tasks normally.",
-    'sad': "Assign lighter tasks or encourage social interaction.",
-    'surprise': "Allow creative or unexpected tasks."
-}
-
+# ── DB helpers ────────────────────────────────────────────────────────────────
 def save_mood_to_db(emotion):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with sqlite3.connect(os.path.join(BASE_DIR, "mood_tracking.db")) as conn:
@@ -74,7 +92,6 @@ def check_stress_alert():
         cursor = conn.cursor()
         cursor.execute("SELECT emotion FROM mood_log ORDER BY timestamp DESC LIMIT 5")
         last_moods = [row[0] for row in cursor.fetchall()]
-
     if len(last_moods) < 5:
         return
     if sum(1 for m in last_moods if m in stress_emotions) >= 4:
@@ -84,18 +101,15 @@ def send_stress_alert():
     sender_email = os.getenv("EMAIL_USER")
     receiver_email = os.getenv("HR_EMAIL")
     password = os.getenv("EMAIL_PASS")
-
     if not sender_email or not password:
         print("Email credentials missing.")
         return
-
     subject = "Employee Stress Alert!"
     body = "An employee has shown signs of prolonged stress. Please check in."
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = sender_email
     msg["To"] = receiver_email
-
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender_email, password)
@@ -104,34 +118,33 @@ def send_stress_alert():
     except Exception as e:
         print(f"Email sending error: {e}")
 
-def extract_features(image):
-    feature = np.array(image).reshape(1, 48, 48, 1)
-    return feature / 255.0
+# ── Inference helpers ─────────────────────────────────────────────────────────
+def extract_face_features(image):
+    return np.array(image).reshape(1, 48, 48, 1) / 255.0
 
 def analyze_text_emotion(text):
-    sentiment = sia.polarity_scores(text)
-    if sentiment['compound'] >= 0.05:
-        return "happy"
-    elif sentiment['compound'] <= -0.05:
-        return "sad"
-    else:
-        emotion_result = emotion_classifier(text)[0][0]['label']
-        mapping = {
-            "joy": "happy", "anger": "angry", "fear": "fear",
-            "surprise": "surprise", "sadness": "sad",
-            "neutral": "neutral", "disgust": "disgust"
-        }
-        return mapping.get(emotion_result.lower(), "neutral")
+    result = emotion_classifier(text)[0][0]
+    return EMOTION_MAP.get(result['label'].lower(), "neutral")
 
 def analyze_speech_emotion(audio_path):
-    y, sr = librosa.load(audio_path, sr=None)
-    mfccs = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40).T, axis=0)
-    return "happy" if np.mean(mfccs) > 0 else "neutral"
+    # Load & resample to 16 kHz mono (required by Whisper)
+    y, sr = librosa.load(audio_path, sr=16000, mono=True)
+    transcription = asr_pipeline({"array": y, "sampling_rate": sr})['text'].strip()
+    if not transcription:
+        return "neutral", ""
+    emotion = analyze_text_emotion(transcription)
+    return emotion, transcription
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 @app.route('/analyze_text', methods=['POST'])
 def analyze_text():
     text = request.json.get("text", "")
     emotion = analyze_text_emotion(text)
+    latest_emotions['text'] = emotion
     save_mood_to_db(emotion)
     return jsonify({"emotion": emotion})
 
@@ -140,16 +153,33 @@ def analyze_speech():
     audio_file = request.files['file']
     audio_path = os.path.join(BASE_DIR, "temp_audio.wav")
     audio_file.save(audio_path)
-    emotion = analyze_speech_emotion(audio_path)
+    emotion, transcription = analyze_speech_emotion(audio_path)
+    latest_emotions['audio'] = emotion
     save_mood_to_db(emotion)
-    os.remove(audio_path)
-    return jsonify({"emotion": emotion})
-
-detected_faces = []
+    try:
+        os.remove(audio_path)
+    except OSError:
+        pass
+    return jsonify({"emotion": emotion, "transcription": transcription})
 
 @app.route('/get_emotion_task')
 def get_emotion_task():
     return jsonify(detected_faces or [{"emotion": "No face detected", "task": "N/A"}])
+
+@app.route('/fuse')
+def fuse_emotions():
+    emotion, scores = fuse(
+        face_result=latest_emotions['face'],
+        text_result=latest_emotions['text'],
+        audio_result=latest_emotions['audio']
+    )
+    task = task_assignment.get(emotion, "Continue with assigned tasks normally.")
+    return jsonify({
+        "fused_emotion": emotion,
+        "task": task,
+        "sources": {k: v for k, v in latest_emotions.items()},
+        "scores": {k: round(v, 3) for k, v in scores.items()}
+    })
 
 def generate_frames():
     global detected_faces
@@ -165,14 +195,15 @@ def generate_frames():
 
         for (x, y, w, h) in faces:
             image = cv2.resize(gray[y:y+h, x:x+w], (48, 48))
-            img = extract_features(image)
-            pred = model.predict(img)
+            img = extract_face_features(image)
+            pred = face_model.predict(img, verbose=0)
             emotion = labels[pred.argmax()]
             task = task_assignment[emotion]
             detected_faces.append({'emotion': emotion, 'task': task})
+            latest_emotions['face'] = emotion
             save_mood_to_db(emotion)
             cv2.rectangle(im, (x, y), (x+w, y+h), (255, 0, 0), 2)
-            cv2.putText(im, emotion, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
+            cv2.putText(im, emotion, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
         ret, buffer = cv2.imencode('.jpg', im)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -181,10 +212,6 @@ def generate_frames():
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 if __name__ == "__main__":
     app.run(debug=True)
