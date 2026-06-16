@@ -14,9 +14,13 @@ import librosa
 from tensorflow import keras
 import tensorflow as tf
 
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0" 
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "frontend", "templates")
+
+app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
 nltk.download('vader_lexicon')
 sia = SentimentIntensityAnalyzer()
@@ -28,7 +32,7 @@ emotion_classifier = pipeline(
 )
 
 print("Loading modern Keras model...")
-model = keras.models.load_model("expressiondetector_modern.keras", compile=False)
+model = keras.models.load_model(os.path.join(MODELS_DIR, "expressiondetector_modern.keras"), compile=False)
 print("Model loaded successfully!")
 
 haar_file = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
@@ -51,7 +55,7 @@ task_assignment = {
 
 def save_mood_to_db(emotion):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with sqlite3.connect("mood_tracking.db") as conn:
+    with sqlite3.connect(os.path.join(BASE_DIR, "mood_tracking.db")) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS mood_log (
@@ -66,7 +70,7 @@ def save_mood_to_db(emotion):
 
 def check_stress_alert():
     stress_emotions = {"sad", "angry", "fear"}
-    with sqlite3.connect("mood_tracking.db") as conn:
+    with sqlite3.connect(os.path.join(BASE_DIR, "mood_tracking.db")) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT emotion FROM mood_log ORDER BY timestamp DESC LIMIT 5")
         last_moods = [row[0] for row in cursor.fetchall()]
@@ -134,7 +138,7 @@ def analyze_text():
 @app.route('/analyze_speech', methods=['POST'])
 def analyze_speech():
     audio_file = request.files['file']
-    audio_path = "temp_audio.wav"
+    audio_path = os.path.join(BASE_DIR, "temp_audio.wav")
     audio_file.save(audio_path)
     emotion = analyze_speech_emotion(audio_path)
     save_mood_to_db(emotion)

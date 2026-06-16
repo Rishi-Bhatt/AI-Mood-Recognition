@@ -46,4 +46,3 @@ def send_alert_to_hr(stress_percentage):
         server.sendmail(sender_email, recipients, msg.as_string())
 
     print("HR & Manager Alert Sent")
-

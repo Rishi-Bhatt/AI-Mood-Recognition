@@ -98,7 +98,3 @@ import matplotlib.pyplot as plt
 image = "images/train/happy/28.jpg"
 print("Original image is of happy")
 img = single_extract(image)
-Predict = model.predict(img)
-Predict_label = label[Predict.argmax()]
-print("Model prediction is", Predict_label)
-plt.imshow(img.reshape(48,48), cmap='gray')
