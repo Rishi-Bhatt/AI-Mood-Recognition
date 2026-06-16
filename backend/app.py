@@ -206,13 +206,36 @@ def update_weights():
             fusion_weights[k] = max(0.0, float(data[k]))
     return jsonify(fusion_weights)
 
+def _open_camera():
+    """Try to open a camera, using DirectShow on Windows for reliability."""
+    backends = [cv2.CAP_DSHOW, cv2.CAP_ANY] if os.name == 'nt' else [cv2.CAP_ANY]
+    for idx in range(3):
+        for backend in backends:
+            cap = cv2.VideoCapture(idx, backend)
+            if cap.isOpened():
+                print(f"Camera opened on index {idx} (backend={backend})")
+                return cap
+            cap.release()
+    return None
+
 def generate_frames():
     global detected_faces
-    webcam = cv2.VideoCapture(0)
+    webcam = _open_camera()
+    if webcam is None:
+        print("ERROR: No camera found. Check that it is connected and not in use.")
+        return
+
+    consecutive_failures = 0
     while True:
         success, im = webcam.read()
         if not success:
-            break
+            consecutive_failures += 1
+            if consecutive_failures > 30:
+                print("Camera lost. Stopping stream.")
+                break
+            time.sleep(0.05)
+            continue
+        consecutive_failures = 0
 
         gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=6)
@@ -233,6 +256,14 @@ def generate_frames():
         ret, buffer = cv2.imencode('.jpg', im)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
     webcam.release()
+
+@app.route('/camera_status')
+def camera_status():
+    cap = _open_camera()
+    if cap:
+        cap.release()
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "error", "message": "No camera found"}), 503
 
 @app.route('/video_feed')
 def video_feed():
