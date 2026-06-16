@@ -219,8 +219,7 @@
                         <button onclick="recordAudio()" class="btn btn-light-brown mt-2" id="recordAudioBtn">
                             Record Speech
                         </button>
-                        <p class="mt-3 mb-1 transcription-text" id="speechTranscription"></p>
-                        <p class="mb-0"><strong>Detected Emotion:</strong> <span id="speechEmotion" class="text-light-brown fw-bold">Waiting...</span></p>
+                        <p class="mt-3 mb-0"><strong>Detected Emotion:</strong> <span id="speechEmotion" class="text-light-brown fw-bold">Waiting...</span></p>
                     </div>
                 </div>
             </div>
@@ -240,22 +239,45 @@
                                 <p class="mt-2 text-muted small" id="fusedTask">Use face, text &amp; speech first</p>
                             </div>
                             <div class="col-md-8 ps-4">
-                                <p class="mb-2 fw-semibold">Individual Modalities</p>
-                                <div>
-                                    <span class="text-muted" style="font-size:0.85rem;">Face:</span>
-                                    <span class="source-badge" id="fuseSrcFace">—</span>
+                                <div class="row">
+                                    <div class="col-md-5">
+                                        <p class="mb-2 fw-semibold">Individual Modalities</p>
+                                        <div>
+                                            <span class="text-muted" style="font-size:0.85rem;">Face:</span>
+                                            <span class="source-badge" id="fuseSrcFace">—</span>
+                                        </div>
+                                        <div class="mt-1">
+                                            <span class="text-muted" style="font-size:0.85rem;">Text:</span>
+                                            <span class="source-badge" id="fuseSrcText">—</span>
+                                        </div>
+                                        <div class="mt-1">
+                                            <span class="text-muted" style="font-size:0.85rem;">Speech:</span>
+                                            <span class="source-badge" id="fuseSrcAudio">—</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-7 border-start">
+                                        <p class="mb-2 fw-semibold">Fusion Weights</p>
+                                        <div class="mb-1">
+                                            <div class="d-flex justify-content-between" style="font-size:0.82rem;">
+                                                <span>Face</span><span id="faceWeightVal">50%</span>
+                                            </div>
+                                            <input type="range" class="form-range" id="faceWeight" min="0" max="100" value="50">
+                                        </div>
+                                        <div class="mb-1">
+                                            <div class="d-flex justify-content-between" style="font-size:0.82rem;">
+                                                <span>Text</span><span id="textWeightVal">35%</span>
+                                            </div>
+                                            <input type="range" class="form-range" id="textWeight" min="0" max="100" value="35">
+                                        </div>
+                                        <div class="mb-1">
+                                            <div class="d-flex justify-content-between" style="font-size:0.82rem;">
+                                                <span>Speech</span><span id="audioWeightVal">15%</span>
+                                            </div>
+                                            <input type="range" class="form-range" id="audioWeight" min="0" max="100" value="15">
+                                        </div>
+                                        <p class="mb-0 text-muted" style="font-size:0.75rem;">Drag to adjust &mdash; auto-normalised internally</p>
+                                    </div>
                                 </div>
-                                <div class="mt-1">
-                                    <span class="text-muted" style="font-size:0.85rem;">Text:</span>
-                                    <span class="source-badge" id="fuseSrcText">—</span>
-                                </div>
-                                <div class="mt-1">
-                                    <span class="text-muted" style="font-size:0.85rem;">Speech:</span>
-                                    <span class="source-badge" id="fuseSrcAudio">—</span>
-                                </div>
-                                <p class="mt-3 mb-0 text-muted" style="font-size:0.78rem;">
-                                    Weights: Face 50% &bull; Text 35% &bull; Speech 15%
-                                </p>
                             </div>
                         </div>
                     </div>
@@ -303,6 +325,34 @@
                 .catch(err => console.error("Fuse error:", err));
         }
         setInterval(updateFusedEmotion, 3000);
+
+        function setupWeightSliders() {
+            const sliders = [
+                { id: 'faceWeight',  label: 'faceWeightVal',  key: 'face'  },
+                { id: 'textWeight',  label: 'textWeightVal',  key: 'text'  },
+                { id: 'audioWeight', label: 'audioWeightVal', key: 'audio' },
+            ];
+            sliders.forEach(({ id, label, key }) => {
+                const slider = document.getElementById(id);
+                const display = document.getElementById(label);
+                slider.addEventListener('input', () => {
+                    display.innerText = `${slider.value}%`;
+                });
+                slider.addEventListener('change', () => {
+                    const weights = {
+                        face:  parseInt(document.getElementById('faceWeight').value)  / 100,
+                        text:  parseInt(document.getElementById('textWeight').value)  / 100,
+                        audio: parseInt(document.getElementById('audioWeight').value) / 100,
+                    };
+                    fetch('/weights', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(weights)
+                    });
+                });
+            });
+        }
+        setupWeightSliders();
 
         function analyzeText() {
             const analyzeTextBtn = document.getElementById("analyzeTextBtn");
@@ -379,8 +429,6 @@
                     .then(data => {
                         speechEmotionSpan.innerText = data.emotion;
                         speechEmotionSpan.className = `text-${getEmotionColor(data.emotion)} fw-bold`;
-                        const trans = document.getElementById("speechTranscription");
-                        trans.innerText = data.transcription ? `"${data.transcription}"` : "";
                         recordButton.disabled = false;
                         recordButton.innerHTML = `Record Speech`;
                     })

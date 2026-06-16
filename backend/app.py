@@ -8,6 +8,7 @@ from flask import Flask, render_template, Response, jsonify, request
 import cv2
 import numpy as np
 import librosa
+import torch
 import tf_keras as keras
 from transformers import pipeline
 from dotenv import load_dotenv
@@ -25,10 +26,15 @@ from ml.fusion.fusion_layer import fuse
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
-EMOTION_MAP = {
+# ── Emotion label mappings ─────────────────────────────────────────────────────
+TEXT_EMOTION_MAP = {
     "joy": "happy", "anger": "angry", "sadness": "sad",
     "fear": "fear", "disgust": "disgust", "surprise": "surprise",
     "neutral": "neutral"
+}
+
+SPEECHBRAIN_MAP = {
+    "neu": "neutral", "hap": "happy", "ang": "angry", "sad": "sad"
 }
 
 task_assignment = {
@@ -43,18 +49,23 @@ task_assignment = {
 
 labels = {0: 'angry', 1: 'disgust', 2: 'fear', 3: 'happy', 4: 'neutral', 5: 'sad', 6: 'surprise'}
 
-# ── Model loading ─────────────────────────────────────────────────────────────
+# ── Model loading ──────────────────────────────────────────────────────────────
 print("Loading text emotion classifier (j-hartmann/emotion-english-distilroberta-base)...")
-emotion_classifier = pipeline(
+text_emotion_pipeline = pipeline(
     "text-classification",
     model="j-hartmann/emotion-english-distilroberta-base",
     top_k=1
 )
 
-print("Loading Whisper ASR (openai/whisper-base)...")
-asr_pipeline = pipeline(
-    "automatic-speech-recognition",
-    model="openai/whisper-base"
+print("Loading SpeechBrain audio emotion model (wav2vec2-IEMOCAP)...")
+try:
+    from speechbrain.inference.classifiers import EncoderClassifier
+except ImportError:
+    from speechbrain.pretrained import EncoderClassifier
+
+audio_emotion_classifier = EncoderClassifier.from_hparams(
+    source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
+    savedir=os.path.join(BASE_DIR, ".cache", "speechbrain")
 )
 
 print("Loading face CNN...")
@@ -66,11 +77,12 @@ print("All models loaded!")
 haar_file = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(haar_file)
 
-# ── Global state for fusion ───────────────────────────────────────────────────
-latest_emotions = {'face': None, 'text': None, 'audio': None}
-detected_faces = []
+# ── Global state ───────────────────────────────────────────────────────────────
+latest_emotions  = {'face': None, 'text': None, 'audio': None}
+detected_faces   = []
+fusion_weights   = {'face': 0.50, 'text': 0.35, 'audio': 0.15}
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
+# ── DB helpers ─────────────────────────────────────────────────────────────────
 def save_mood_to_db(emotion):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with sqlite3.connect(os.path.join(BASE_DIR, "mood_tracking.db")) as conn:
@@ -118,24 +130,25 @@ def send_stress_alert():
     except Exception as e:
         print(f"Email sending error: {e}")
 
-# ── Inference helpers ─────────────────────────────────────────────────────────
+# ── Inference helpers ──────────────────────────────────────────────────────────
 def extract_face_features(image):
     return np.array(image).reshape(1, 48, 48, 1) / 255.0
 
 def analyze_text_emotion(text):
-    result = emotion_classifier(text)[0][0]
-    return EMOTION_MAP.get(result['label'].lower(), "neutral")
+    result = text_emotion_pipeline(text)[0][0]
+    return TEXT_EMOTION_MAP.get(result['label'].lower(), "neutral")
 
 def analyze_speech_emotion(audio_path):
-    # Load & resample to 16 kHz mono (required by Whisper)
+    # Load & resample to 16 kHz mono (required by wav2vec2)
     y, sr = librosa.load(audio_path, sr=16000, mono=True)
-    transcription = asr_pipeline({"array": y, "sampling_rate": sr})['text'].strip()
-    if not transcription:
-        return "neutral", ""
-    emotion = analyze_text_emotion(transcription)
-    return emotion, transcription
+    waveform = torch.tensor(y).unsqueeze(0)   # [1, samples]
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+    out_prob, score, index, text_lab = audio_emotion_classifier.classify_batch(waveform)
+    raw_label = text_lab[0]                   # e.g. 'hap', 'neu', 'ang', 'sad'
+    emotion = SPEECHBRAIN_MAP.get(raw_label, "neutral")
+    return emotion
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -153,14 +166,14 @@ def analyze_speech():
     audio_file = request.files['file']
     audio_path = os.path.join(BASE_DIR, "temp_audio.wav")
     audio_file.save(audio_path)
-    emotion, transcription = analyze_speech_emotion(audio_path)
+    emotion = analyze_speech_emotion(audio_path)
     latest_emotions['audio'] = emotion
     save_mood_to_db(emotion)
     try:
         os.remove(audio_path)
     except OSError:
         pass
-    return jsonify({"emotion": emotion, "transcription": transcription})
+    return jsonify({"emotion": emotion})
 
 @app.route('/get_emotion_task')
 def get_emotion_task():
@@ -171,15 +184,25 @@ def fuse_emotions():
     emotion, scores = fuse(
         face_result=latest_emotions['face'],
         text_result=latest_emotions['text'],
-        audio_result=latest_emotions['audio']
+        audio_result=latest_emotions['audio'],
+        weights=fusion_weights
     )
     task = task_assignment.get(emotion, "Continue with assigned tasks normally.")
     return jsonify({
         "fused_emotion": emotion,
         "task": task,
         "sources": {k: v for k, v in latest_emotions.items()},
-        "scores": {k: round(v, 3) for k, v in scores.items()}
+        "scores": {k: round(v, 3) for k, v in scores.items()},
+        "weights": fusion_weights
     })
+
+@app.route('/weights', methods=['POST'])
+def update_weights():
+    data = request.json or {}
+    for k in ('face', 'text', 'audio'):
+        if k in data:
+            fusion_weights[k] = max(0.0, float(data[k]))
+    return jsonify(fusion_weights)
 
 def generate_frames():
     global detected_faces
