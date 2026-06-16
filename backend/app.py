@@ -2,6 +2,7 @@ import sqlite3
 import smtplib
 import os
 import sys
+import time
 from datetime import datetime
 from email.mime.text import MIMEText
 from flask import Flask, render_template, Response, jsonify, request
@@ -74,9 +75,11 @@ haar_file = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(haar_file)
 
 # ── Global state ───────────────────────────────────────────────────────────────
-latest_emotions  = {'face': None, 'text': None, 'audio': None}
-detected_faces   = []
-fusion_weights   = {'face': 0.50, 'text': 0.35, 'audio': 0.15}
+latest_emotions     = {'face': None, 'text': None, 'audio': None}
+detected_faces      = []
+fusion_weights      = {'face': 0.50, 'text': 0.35, 'audio': 0.15}
+_last_alert_time    = 0
+ALERT_COOLDOWN_SECS = 3600  # send at most one stress alert per hour
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 def save_mood_to_db(emotion):
@@ -106,6 +109,10 @@ def check_stress_alert():
         send_stress_alert()
 
 def send_stress_alert():
+    global _last_alert_time
+    if time.time() - _last_alert_time < ALERT_COOLDOWN_SECS:
+        return
+    _last_alert_time = time.time()
     sender_email = os.getenv("EMAIL_USER")
     receiver_email = os.getenv("HR_EMAIL")
     password = os.getenv("EMAIL_PASS")
