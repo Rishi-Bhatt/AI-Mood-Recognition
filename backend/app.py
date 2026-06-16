@@ -8,7 +8,6 @@ from flask import Flask, render_template, Response, jsonify, request
 import cv2
 import numpy as np
 import librosa
-import torch
 import tf_keras as keras
 from transformers import pipeline
 from dotenv import load_dotenv
@@ -33,8 +32,10 @@ TEXT_EMOTION_MAP = {
     "neutral": "neutral"
 }
 
-SPEECHBRAIN_MAP = {
-    "neu": "neutral", "hap": "happy", "ang": "angry", "sad": "sad"
+AUDIO_EMOTION_MAP = {
+    "angry": "angry", "calm": "neutral", "disgust": "disgust",
+    "fearful": "fear", "happy": "happy", "neutral": "neutral",
+    "sad": "sad", "surprised": "surprise"
 }
 
 task_assignment = {
@@ -57,15 +58,10 @@ text_emotion_pipeline = pipeline(
     top_k=1
 )
 
-print("Loading SpeechBrain audio emotion model (wav2vec2-IEMOCAP)...")
-try:
-    from speechbrain.inference.classifiers import EncoderClassifier
-except ImportError:
-    from speechbrain.pretrained import EncoderClassifier
-
-audio_emotion_classifier = EncoderClassifier.from_hparams(
-    source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
-    savedir=os.path.join(BASE_DIR, ".cache", "speechbrain")
+print("Loading audio emotion model (wav2vec2-lg-xlsr-en-speech-emotion-recognition)...")
+audio_emotion_pipeline = pipeline(
+    "audio-classification",
+    model="ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition"
 )
 
 print("Loading face CNN...")
@@ -141,11 +137,9 @@ def analyze_text_emotion(text):
 def analyze_speech_emotion(audio_path):
     # Load & resample to 16 kHz mono (required by wav2vec2)
     y, sr = librosa.load(audio_path, sr=16000, mono=True)
-    waveform = torch.tensor(y).unsqueeze(0)   # [1, samples]
-
-    out_prob, score, index, text_lab = audio_emotion_classifier.classify_batch(waveform)
-    raw_label = text_lab[0]                   # e.g. 'hap', 'neu', 'ang', 'sad'
-    emotion = SPEECHBRAIN_MAP.get(raw_label, "neutral")
+    results = audio_emotion_pipeline({"array": y, "sampling_rate": sr})
+    top = max(results, key=lambda x: x["score"])
+    emotion = AUDIO_EMOTION_MAP.get(top["label"].lower(), "neutral")
     return emotion
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
