@@ -34,9 +34,10 @@ TEXT_EMOTION_MAP = {
 }
 
 AUDIO_EMOTION_MAP = {
-    "angry": "angry", "calm": "neutral", "disgust": "disgust",
-    "fearful": "fear", "happy": "happy", "neutral": "neutral",
-    "sad": "sad", "surprised": "surprise"
+    # superb/wav2vec2-base-superb-er labels (IEMOCAP)
+    "ang": "angry", "hap": "happy", "neu": "neutral", "sad": "sad",
+    # full-word fallbacks
+    "angry": "angry", "happy": "happy", "neutral": "neutral", "sadness": "sad",
 }
 
 task_assignment = {
@@ -59,10 +60,10 @@ text_emotion_pipeline = pipeline(
     top_k=1
 )
 
-print("Loading audio emotion model (wav2vec2-lg-xlsr-en-speech-emotion-recognition)...")
+print("Loading audio emotion model (superb/wav2vec2-base-superb-er)...")
 audio_emotion_pipeline = pipeline(
     "audio-classification",
-    model="ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition"
+    model="superb/wav2vec2-base-superb-er"
 )
 
 print("Loading face CNN...")
