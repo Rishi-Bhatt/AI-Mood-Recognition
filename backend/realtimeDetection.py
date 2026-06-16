@@ -2,7 +2,7 @@ import os
 import cv2
 import mediapipe as mp
 import numpy as np
-from tensorflow import keras
+import tf_keras as keras
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "models", "expressiondetector_modern.keras")

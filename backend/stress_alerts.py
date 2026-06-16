@@ -2,6 +2,10 @@ import sqlite3
 import smtplib
 from email.mime.text import MIMEText
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 conn = sqlite3.connect("mood_tracking.db")
 cursor = conn.cursor()

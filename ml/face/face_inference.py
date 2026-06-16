@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from tensorflow.keras.models import load_model
+from tf_keras.models import load_model
 import joblib
 
 MODEL_PATH = "models/expressiondetector_modern.keras"

@@ -7,3 +7,4 @@ models/*.pkl
 images/
 temp_audio.wav
 .cache/
+.env
